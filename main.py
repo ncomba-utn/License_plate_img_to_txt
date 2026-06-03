@@ -5,7 +5,11 @@ import easyocr
 import pyperclip
 import pyautogui
 import time
+import json
+import os
 from pynput import keyboard, mouse
+
+CONFIG_FILE = "calibracion.json"
 
 ROI = {
     "left": 20,
@@ -20,6 +24,35 @@ puntos_calibracion = []
 controlador_mouse = mouse.Controller()
 
 pyautogui.PAUSE = 0.1
+
+def guardar_configuracion():
+    config = {
+        "ROI": ROI,
+        "pos_casilla": pos_casilla,
+        "pos_lupa": pos_lupa
+    }
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=4)
+    print("\n💾 Calibración guardada automáticamente en:", CONFIG_FILE)
+
+def cargar_configuracion():
+    global ROI, pos_casilla, pos_lupa
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+            ROI = config["ROI"]
+            pos_casilla = config["pos_casilla"]
+            pos_lupa = config["pos_lupa"]
+            print("\n✅ Calibración previa cargada con éxito.")
+            print(f"• Zona de captura: {ROI}")
+            print(f"• Clic en Casilla: {pos_casilla}")
+            print(f"• Clic en Lupa:    {pos_lupa}")
+            print("Ya podés usar F10 directamente sin calibrar.")
+        except Exception as e:
+            print(f"\n⚠️ No se pudo cargar el archivo de calibración: {e}")
+    else:
+        print("\nℹ️ No se encontró calibración previa. Por favor, calibrá el sistema con F9.")
 
 print("Cargando el motor OCR... Espere un momento.")
 reader = easyocr.Reader(['en'], gpu=False)
@@ -48,7 +81,7 @@ def clean_text(text):
 
 def process():
     global pos_casilla, pos_lupa
-
+    
     if pos_casilla is None or pos_lupa is None:
         print("❌ ERROR: Primero debés calibrar la casilla y la lupa con F9.")
         return
@@ -73,20 +106,20 @@ def process():
     if final_text:
         pyperclip.copy(final_text)
         print("Patente detectada:", final_text)
-
+        
         pyautogui.moveTo(pos_casilla[0], pos_casilla[1])
         pyautogui.click()
-
+        
         pyautogui.hotkey('ctrl', 'a')
         pyautogui.press('backspace')
-
+        
         pyautogui.hotkey('ctrl', 'v')
         time.sleep(0.08)
-
+        
         pyautogui.moveTo(pos_lupa[0], pos_lupa[1])
         pyautogui.click()
         print("🚀 Pegado y búsqueda ejecutada.")
-
+        
     else:
         print("Texto vacío tras limpieza")
 
@@ -94,9 +127,9 @@ def calibrar_sistema():
     global ROI, pos_casilla, pos_lupa
     pos_actual = controlador_mouse.position
     puntos_calibracion.append(pos_actual)
-
+    
     paso = len(puntos_calibracion)
-
+    
     if paso == 1:
         print(f"\n📌 [1/4] Esquina SUP. IZQUIERDA guardada en: {pos_actual}")
         print("👉 Mové el mouse a la esquina INFERIOR DERECHA de la patente y presioná F9.")
@@ -110,23 +143,23 @@ def calibrar_sistema():
     elif paso == 4:
         pos_lupa = pos_actual
         print(f"📌 [4/4] Ubicación de la LUPA guardada en: {pos_lupa}")
-
+        
         x1, y1 = puntos_calibracion[0]
         x2, y2 = puntos_calibracion[1]
         ROI["left"] = min(x1, x2)
         ROI["top"] = min(y1, y2)
         ROI["width"] = abs(x2 - x1)
         ROI["height"] = abs(y2 - y1)
-
+        
         print("\n" + "="*40)
         print("✅ ¡SISTEMA CALIBRADO Y LISTO!")
         print("="*40)
-        print(f"• Zona de captura: {ROI}")
-        print(f"• Clic en Casilla: {pos_casilla}")
-        print(f"• Clic en Lupa:    {pos_lupa}")
+        
+        guardar_configuracion()
+        
         print("\nYa podés usar F10 tranquilamente.")
         print("="*40)
-
+        
         puntos_calibracion.clear()
 
 def on_press(key):
@@ -141,7 +174,11 @@ def on_press(key):
 print("\n" + "="*50)
 print("🚀 AUTOMATIZADOR COMPLETO ACTIVO")
 print("="*50)
-print("PASOS PARA CALIBRAR (Presioná F9 en cada uno):")
+
+cargar_configuracion()
+
+print("--------------------------------------------------")
+print("SI NECESITÁS RE-CALIBRAR (Presioná F9 en cada uno):")
 print(" 1. Esquina superior izquierda de la patente.")
 print(" 2. Esquina inferior derecha de la patente.")
 print(" 3. Centro del cuadro blanco de texto.")
