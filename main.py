@@ -7,6 +7,7 @@ import pyautogui
 import time
 import json
 import os
+import re  # <-- Importamos expresiones regulares para validar el formato
 from pynput import keyboard, mouse
 
 CONFIG_FILE = "calibracion.json"
@@ -79,6 +80,19 @@ def clean_text(text):
     allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     return "".join(c for c in text if c in allowed)
 
+def es_patente_valida(texto):
+    """
+    Valida si el texto cumple con:
+    - Formato viejo: 3 letras y 3 números (Ej: ABC123)
+    - Formato Mercosur: 2 letras, 3 números y 2 letras (Ej: AB123CD)
+    """
+    patron_viejo = r"^[A-Z]{3}\d{3}$"
+    patron_mercosur = r"^[A-Z]{2}\d{3}[A-Z]{2}$"
+    
+    if re.match(patron_viejo, texto) or re.match(patron_mercosur, texto):
+        return True
+    return False
+
 def process():
     global pos_casilla, pos_lupa
     
@@ -86,26 +100,56 @@ def process():
         print("❌ ERROR: Primero debés calibrar la casilla y la lupa con F9.")
         return
 
-    img = capture_region()
-    proc = preprocess(img)
+    intentos_maximos = 20
+    patente_final = None
+    mejor_texto_alternativo = ""
 
-    result = reader.readtext(
-        proc, 
-        detail=0, 
-        allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-        paragraph=False
-    )
+    print("\n🔍 Iniciando lectura de patente (Máx. 20 intentos)...")
+    
+    for intento in range(1, intentos_maximos + 1):
+        img = capture_region()
+        proc = preprocess(img)
 
-    if not result:
-        print("No se detectó texto")
-        return
+        result = reader.readtext(
+            proc, 
+            detail=0, 
+            allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+            paragraph=False
+        )
 
-    raw_text = "".join(result).replace(" ", "")
-    final_text = clean_text(raw_text)
+        if result:
+            raw_text = "".join(result).replace(" ", "")
+            final_text = clean_text(raw_text)
 
-    if final_text:
-        pyperclip.copy(final_text)
-        print("Patente detectada:", final_text)
+            # 1. Si el formato es perfecto, se corta el bucle inmediatamente
+            if es_patente_valida(final_text):
+                patente_final = final_text
+                print(f"✅ ¡Patente perfecta detectada en el intento {intento}!: {patente_final}")
+                break
+            
+            # 2. Si no es perfecto, evaluamos si es el "más cercano" por cantidad de caracteres (6 o 7)
+            else:
+                print(f"⚠️ Intento {intento}/{intentos_maximos}: Formato incorrecto ({final_text if final_text else 'Vacío'}).")
+                
+                # Guardamos este texto como alternativa si se acerca más al largo de una patente real
+                if len(final_text) in [6, 7]:
+                    mejor_texto_alternativo = final_text
+                elif len(final_text) > len(mejor_texto_alternativo):
+                    # Respaldo en caso de que no haya de 6 o 7, elegimos el que tenga más caracteres detectados
+                    mejor_texto_alternativo = final_text
+        else:
+            print(f"⚠️ Intento {intento}/{intentos_maximos}: No se detectó texto.")
+        
+        time.sleep(0.05)
+
+    # Si salimos del bucle sin la patente perfecta, usamos el mejor intento registrado
+    if not patente_final and mejor_texto_alternativo:
+        patente_final = mejor_texto_alternativo
+        print(f"🧡 No se encontró formato exacto. Usando el intento más cercano: {patente_final}")
+
+    # Si logramos definir un texto para procesar (sea perfecto o el más cercano)
+    if patente_final:
+        pyperclip.copy(patente_final)
         
         pyautogui.moveTo(pos_casilla[0], pos_casilla[1])
         pyautogui.click()
@@ -119,9 +163,8 @@ def process():
         pyautogui.moveTo(pos_lupa[0], pos_lupa[1])
         pyautogui.click()
         print("🚀 Pegado y búsqueda ejecutada.")
-        
     else:
-        print("Texto vacío tras limpieza")
+        print(f"❌ ERROR: Se alcanzaron los {intentos_maximos} intentos y las capturas fueron completamente ilegibles (Vacías).")
 
 def calibrar_sistema():
     global ROI, pos_casilla, pos_lupa
@@ -166,7 +209,7 @@ def on_press(key):
     try:
         if key == keyboard.Key.f9:
             calibrar_sistema()
-        elif key == keyboard.Key.f10:
+        elif key == keyboard.Key.f10:  # <-- Mantenemos F10 asignada a la acción del script
             process()
     except Exception as e:
         print(f"Error en listener: {e}")
